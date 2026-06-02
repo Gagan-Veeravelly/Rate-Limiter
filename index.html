@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sliding Window Rate Limiter Simulator</title>
+    <style>
+        :root {
+            --bg: #0f1115;
+            --card: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --text-dim: #8b949e;
+            --accent: #58a6ff;
+            --success: #2ea043;
+            --danger: #da3633;
+            --warning: #d29922;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+        body { background: var(--bg); color: var(--text); min-height: 100vh; padding: 2rem; }
+        
+        .container { max-width: 1200px; margin: 0 auto; }
+        
+        header { text-align: center; margin-bottom: 2rem; }
+        h1 { font-size: 2.2rem; margin-bottom: 0.5rem; background: linear-gradient(90deg, var(--accent), #a371f7); -webkit-background-clip: text; color: transparent; }
+        .subtitle { color: var(--text-dim); font-size: 0.95rem; }
+
+        .dashboard { display: grid; grid-template-columns: 1fr 1.5fr; gap: 1.5rem; }
+        
+        .panel { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; }
+        .panel-title { font-size: 1.1rem; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+        .panel-title::before { content: ''; display: block; width: 4px; height: 16px; background: var(--accent); border-radius: 2px; }
+
+        .controls { display: flex; flex-direction: column; gap: 1rem; }
+        .input-group { display: flex; flex-direction: column; gap: 0.3rem; }
+        label { font-size: 0.85rem; color: var(--text-dim); }
+        input { background: #0d1117; border: 1px solid var(--border); color: var(--text); padding: 0.6rem; border-radius: 6px; font-size: 0.95rem; outline: none; transition: 0.2s; }
+        input:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2); }
+
+        .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem; margin-top: 0.5rem; }
+        button { padding: 0.7rem; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; transition: 0.2s; }
+        .btn-primary { background: var(--accent); color: #fff; }
+        .btn-primary:hover { background: #409eff; transform: translateY(-1px); }
+        .btn-demo { background: #a371f7; color: #fff; }
+        .btn-demo:hover { background: #8b5cf6; transform: translateY(-1px); }
+        .btn-clear { background: var(--border); color: var(--text); grid-column: span 2; }
+        .btn-clear:hover { background: #3b434d; }
+
+        .users-grid { display: flex; flex-direction: column; gap: 1rem; max-height: 400px; overflow-y: auto; padding-right: 0.5rem; }
+        .user-card { background: #0d1117; border: 1px solid var(--border); padding: 1rem; border-radius: 8px; }
+        .user-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem; }
+        .user-id { font-weight: 600; color: var(--accent); }
+        .user-status { font-size: 0.8rem; padding: 2px 8px; border-radius: 12px; background: rgba(46, 160, 67, 0.2); color: var(--success); }
+        .user-status.blocked { background: rgba(218, 54, 51, 0.2); color: var(--danger); }
+        
+        .queue-track { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; position: relative; margin-bottom: 0.5rem; }
+        .queue-fill { height: 100%; background: var(--success); transition: width 0.3s ease; }
+        .queue-fill.warn { background: var(--warning); }
+        .queue-fill.full { background: var(--danger); }
+        
+        .queue-timestamps { display: flex; gap: 6px; flex-wrap: wrap; }
+        .ts-chip { font-size: 0.75rem; padding: 2px 6px; background: #161b22; border: 1px solid var(--border); border-radius: 4px; color: var(--text-dim); animation: popIn 0.2s ease; }
+        .ts-chip.expired { opacity: 0.3; text-decoration: line-through; }
+
+        .log-panel { grid-column: span 2; margin-top: 1.5rem; }
+        .log-container { background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1rem; height: 200px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.9rem; line-height: 1.5; }
+        .log-entry { margin-bottom: 0.3rem; animation: slideIn 0.2s ease; }
+        .log-entry.allowed { color: var(--success); }
+        .log-entry.denied { color: var(--danger); }
+        .log-time { color: var(--text-dim); }
+
+        @keyframes popIn { 0% { transform: scale(0.8); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes slideIn { 0% { transform: translateX(-10px); opacity: 0; } 100% { transform: translateX(0); opacity: 1; } }
+        
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+        @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } .log-panel { grid-column: span 1; } }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Sliding Window Rate Limiter</h1>
+            <p class="subtitle">Interactive visualization matching your C implementation</p>
+        </header>
+
+        <div class="dashboard">
+            <div class="panel controls">
+                <div class="panel-title">Configuration & Actions</div>
+                <div class="input-group">
+                    <label>User ID</label>
+                    <input type="text" id="userId" placeholder="e.g., user1" value="user1">
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.8rem;">
+                    <div class="input-group">
+                        <label>Max Requests</label>
+                        <input type="number" id="reqLimit" value="3" min="1">
+                    </div>
+                    <div class="input-group">
+                        <label>Window (sec)</label>
+                        <input type="number" id="timeWindow" value="5" min="1">
+                    </div>
+                </div>
+                <div class="btn-row">
+                    <button class="btn-primary" id="sendBtn">Send Request</button>
+                    <button class="btn-demo" id="demoBtn">Run C-Demo</button>
+                    <button class="btn-clear" id="clearBtn">Reset All</button>
+                </div>
+                <div style="margin-top: 1rem; font-size: 0.85rem; color: var(--text-dim); line-height: 1.4;">
+                    <strong>Logic:</strong> Mirrors your C code exactly. Uses a queue of timestamps. Expired entries are dequeued before checking the limit.
+                </div>
+            </div>
+
+            <div class="panel">
+                <div class="panel-title">Active User Queues</div>
+                <div class="users-grid" id="usersGrid">
+                    <div style="color: var(--text-dim); text-align: center; padding: 2rem;">Send a request to initialize a user queue</div>
+                </div>
+            </div>
+
+            <div class="panel log-panel">
+                <div class="panel-title">Request Log</div>
+                <div class="log-container" id="logContainer"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // State mimicking the C struct
+        const users = {};
+        
+        // DOM Elements
+        const userIdInput = document.getElementById('userId');
+        const reqLimitInput = document.getElementById('reqLimit');
+        const timeWindowInput = document.getElementById('timeWindow');
+        const sendBtn = document.getElementById('sendBtn');
+        const demoBtn = document.getElementById('demoBtn');
+        const clearBtn = document.getElementById('clearBtn');
+        const usersGrid = document.getElementById('usersGrid');
+        const logContainer = document.getElementById('logContainer');
+
+        // Core Logic (Direct translation of isRequestAllowed)
+        function isRequestAllowed(userId, limit, windowSec) {
+            const now = Math.floor(Date.now() / 1000);
+            
+            // Initialize user if not exists (findOrCreateUser equivalent)
+            if (!users[userId]) {
+                users[userId] = { timestamps: [], limit, windowSec, blocked: false };
+            }
+            const user = users[userId];
+            user.limit = limit;
+            user.windowSec = windowSec;
+
+            // Remove expired timestamps (dequeue equivalent)
+            user.timestamps = user.timestamps.filter(t => now - t < windowSec);
+            user.blocked = false;
+
+            // Check limit
+            if (user.timestamps.length >= limit) {
+                user.blocked = true;
+                return false;
+            }
+
+            // Add current timestamp (enqueue equivalent)
+            user.timestamps.push(now);
+            return true;
+        }
+
+        // UI Rendering
+        function renderUsers() {
+            usersGrid.innerHTML = '';
+            const entries = Object.entries(users);
+            if (entries.length === 0) {
+                usersGrid.innerHTML = '<div style="color: var(--text-dim); text-align: center; padding: 2rem;">Send a request to initialize a user queue</div>';
+                return;
+            }
+
+            entries.forEach(([id, user]) => {
+                const fillPercent = Math.min((user.timestamps.length / user.limit) * 100, 100);
+                let fillClass = fillPercent < 100 ? '' : 'full';
+                if (fillPercent >= 80) fillClass = 'warn';
+
+                const card = document.createElement('div');
+                card.className = 'user-card';
+                card.innerHTML = `
+                    <div class="user-header">
+                        <span class="user-id">${id}</span>
+                        <span class="user-status ${user.blocked ? 'blocked' : ''}">${user.blocked ? 'RATE LIMITED' : 'ACTIVE'}</span>
+                    </div>
+                    <div style="font-size: 0.8rem; color: var(--text-dim); margin-bottom: 0.4rem;">Queue: ${user.timestamps.length}/${user.limit}</div>
+                    <div class="queue-track"><div class="queue-fill ${fillClass}" style="width: ${fillPercent}%"></div></div>
+                    <div class="queue-timestamps">
+                        ${user.timestamps.map(t => `<span class="ts-chip">${new Date(t * 1000).toLocaleTimeString()}</span>`).join('')}
+                    </div>
+                `;
+                usersGrid.prepend(card);
+            });
+        }
+
+        function addLog(userId, allowed) {
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${allowed ? 'allowed' : 'denied'}`;
+            const time = new Date().toLocaleTimeString();
+            entry.innerHTML = `<span class="log-time">[${time}]</span> User: ${userId} | Status: ${allowed ? 'ALLOWED ✅' : 'DENIED 🚫'}`;
+            logContainer.prepend(entry);
+            if (logContainer.children.length > 50) logContainer.lastChild.remove();
+        }
+
+        function handleRequest() {
+            const userId = userIdInput.value.trim() || 'anonymous';
+            const limit = parseInt(reqLimitInput.value) || 3;
+            const windowSec = parseInt(timeWindowInput.value) || 5;
+
+            const allowed = isRequestAllowed(userId, limit, windowSec);
+            addLog(userId, allowed);
+            renderUsers();
+        }
+
+        // Demo Mode (Matches C demoRateLimiter)
+        async function runDemo() {
+            const userId = 'user1';
+            const limit = 3;
+            const windowSec = 5;
+            userIdInput.value = userId;
+            reqLimitInput.value = limit;
+            timeWindowInput.value = windowSec;
+            
+            demoBtn.disabled = true;
+            demoBtn.textContent = 'Running Demo...';
+            addLog('SYSTEM', 'Running C-Demo Simulation: 3 req/5s, 5 attempts');
+
+            for (let i = 1; i <= 5; i++) {
+                const allowed = isRequestAllowed(userId, limit, windowSec);
+                addLog(userId, allowed);
+                renderUsers();
+                await new Promise(res => setTimeout(res, 1000)); // sleep(1) equivalent
+            }
+            
+            demoBtn.disabled = false;
+            demoBtn.textContent = 'Run C-Demo';
+            addLog('SYSTEM', 'Demo Complete. Wait for window expiration to see queue clear.');
+        }
+
+        // Event Listeners
+        sendBtn.addEventListener('click', handleRequest);
+        demoBtn.addEventListener('click', runDemo);
+        clearBtn.addEventListener('click', () => {
+            Object.keys(users).forEach(k => delete users[k]);
+            logContainer.innerHTML = '';
+            renderUsers();
+            addLog('SYSTEM', 'State cleared.');
+        });
+
+        // Optional: Auto-refresh visuals to show timestamps expiring in real-time
+        setInterval(renderUsers, 1000);
+    </script>
+</body>
+</html>
